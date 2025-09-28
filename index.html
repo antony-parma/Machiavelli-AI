@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Machiavelli AI Chatbot</title>
+  <style>
+    body { font-family: Georgia, serif; max-width: 800px; margin: auto; padding: 2rem; background: #f5f5f5; }
+    h1 { text-align: center; }
+    #chatbox { border: 1px solid #ccc; padding: 1rem; background: white; height: 400px; overflow-y: auto; margin-bottom: 1rem; }
+    .user { color: darkblue; margin: 0.5rem 0; }
+    .bot { color: darkred; margin: 0.5rem 0; }
+    #inputArea { display: flex; gap: 0.5rem; }
+    #inputArea input { flex: 1; padding: 0.5rem; }
+    #inputArea button { padding: 0.5rem 1rem; }
+  </style>
+</head>
+<body>
+  <h1>🤔 Machiavelli AI</h1>
+  <div id="chatbox"></div>
+  <div id="inputArea">
+    <input type="text" id="userInput" placeholder="Ask Machiavelli about politics...">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <script>
+    // 🔹 Replace this with your Worker URL:
+    const API_STREAM = "https://YOUR-WORKER-NAME.YOUR-SUBDOMAIN.workers.dev/api/chat/stream";
+
+    const chatbox = document.getElementById("chatbox");
+
+    let knowledge = { starter: "", prince: "" };
+
+    // Load background texts
+    async function loadKnowledge() {
+      const starter = await fetch("machiavelli_starter_pack_full.txt").then(r => r.text());
+      const prince = await fetch("the_prince.txt").then(r => r.text());
+      knowledge = { starter, prince };
+    }
+    loadKnowledge();
+
+    async function sendMessage() {
+      const input = document.getElementById("userInput");
+      const question = input.value.trim();
+      if (!question) return;
+
+      chatbox.innerHTML += `<div class="user"><b>You:</b> ${question}</div>`;
+      input.value = "";
+
+      const payload = {
+        persona: "You are Niccolò Machiavelli, Renaissance political thinker. Use The Prince and the study pack to explain politics. Apply ideas to modern geopolitics when asked.",
+        knowledge: {
+          the_prince: knowledge.prince,
+          starter_pack: knowledge.starter
+        },
+        messages: [{ role: "user", content: question }]
+      };
+
+      const res = await fetch(API_STREAM, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let botResponse = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6).trim();
+            if (data === "[DONE]") continue;
+            try {
+              const obj = JSON.parse(data);
+              const delta = obj.choices?.[0]?.delta?.content || "";
+              if (delta) {
+                botResponse += delta;
+                const existing = chatbox.querySelector(".bot:last-child");
+                if (existing) {
+                  existing.innerHTML = `<b>Machiavelli:</b> ${botResponse}`;
+                } else {
+                  chatbox.innerHTML += `<div class="bot"><b>Machiavelli:</b> ${botResponse}</div>`;
+                }
+                chatbox.scrollTop = chatbox.scrollHeight;
+              }
+            } catch (err) {
+              console.error("Parse error", err);
+            }
+          }
+        }
+      }
+    }
+  </script>
+</body>
+</html>
